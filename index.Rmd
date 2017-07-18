@@ -1,30 +1,95 @@
 ---
-title: "Practical Machina Learning"
+title: "Practical Machine Learning Course Project"
 author: "Nelleke van der Steen"
-date: "4 juli 2017"
+date: "9 juli 2017"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(parallel)
+library(doParallel)
+cores <- detectCores()
+cluster <- makeCluster(1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
 ```
 
-## R Markdown
+## Read data
+```{r cars, warning=FALSE, message=FALSE}
+training <- read.csv("pml-training.csv",stringsAsFactors = FALSE, na.strings = c("NA","#DIV/0!",""))
+testing <- read.csv("pml-testing.csv", stringsAsFactors = FALSE, na.strings = c("NA","#DIV/0!",""))
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+library(caret)
 ```
 
-## Including Plots
+## Cleaning the data
 
-You can also embed plots, for example:
+The dataset contains a larger number of vairables (160), first the ones which have hardly any unique values (near zero variable) and the ones which are almost empty
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+
+```{r cleaing, warning=FALSE}
+training <- training[,(colSums(is.na(training)) == 0)]
+nzv <- nearZeroVar(training, saveMetrics=TRUE)
+training <- training[,nzv$nzv==FALSE]
+
+
+testing <- testing[,(colSums(is.na(testing)) == 0)]
+nzv<- nearZeroVar(testing,saveMetrics=TRUE)
+testing <- testing[,nzv$nzv==FALSE]
+
+
+dim(training)
+```
+The number of variables is now reduced to 59.
+
+### Partition data set
+
+Create my own data for training
+
+```{r cleaning, warning=FALSE}
+set.seed(1)
+inTrain <- createDataPartition(training$classe, p=0.6, list=FALSE)
+myTraining <- training[inTrain, ]
+myTesting <- training[-inTrain, ]
+dim(myTraining); dim(myTesting)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Remove columns which should not be included, since they do not information for the prediction. These variables are X (count), username and timstamps, window number. (first 6 columns) and preprocces the data by transforming bij scaling it.
+
+```{r cleainng, warning=FALSE}
+myTraining <- myTraining[,-c(1:6)]
+
+preProcValues <- preProcess(myTraining, method = c("center", "scale"))
+
+trainTransformed <- predict(preProcValues, myTraining)
+testTransformed <- predict(preProcValues, myTesting)
+```
+
+### Random forest model
+
+Use random forest model, with cross validation of 5 times.
+```{r model, warning=FALSE}
+library(randomForest)
+modFitrf <- train(classe ~., method="rf", data=trainTransformed, trControl=trainControl(method='cv'), number=3, allowParallel=TRUE)
+Prediction<-predict(modFitrf,testTransformed)
+confusionMatrix(as.factor(myTesting$classe),Prediction)
+
+```
+
+
+### In and Out of Sample Error
+
+The in sample error is error rate when the model is used to predict the training set it is based off. This error is going to be much less than the model predicting another dataset (out of sample error). For the random forest model used as the final algorithm, the in sample error rate is 0; the model is 100% accurate. This could be a sign of overfitting.
+
+This check is done by using cross validation in the train function and predicting with an independent testing set at the end. The results is an Accuracy of 99.38% on an inpdependent test set, so the out of sampple error rate is approx 0.006.
+
+
+##For the quiz:
+
+```{r models, warning=FALSE}
+testing_trans <- predict(preProcValues, testing)
+
+Prediction<-predict(modFitrf,testing_trans)
+
+
+```
